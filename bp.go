@@ -25,16 +25,17 @@ type Conn interface {
 
 // io.ReadWriteCloser
 type BusPirate struct {
-	c Conn
+	c           Conn
+	mode        int
+	modeversion int
 }
 
 func NewBusPirate(c Conn) *BusPirate {
-
-	return &BusPirate{c}
+	return &BusPirate{c: c}
 }
 
 func (bp *BusPirate) Open() error {
-	err := bp.c.SetReadParams(1, 100e-3)
+	err := bp.c.SetReadParams(0, 100e-3)
 	if err != nil {
 		return err
 	}
@@ -72,7 +73,7 @@ func (bp *BusPirate) Open() error {
 
 		// drain buffer
 
-		err = bp.c.SetReadParams(1, 0.3)
+		err = bp.c.SetReadParams(0, 0.3)
 		if err != nil {
 			return err
 		}
@@ -83,6 +84,8 @@ func (bp *BusPirate) Open() error {
 		}
 		fmt.Printf("drained buffer, %d excess bytes discarded\n", n)
 
+		bp.mode = MODE_BITBANG
+		bp.modeversion = 1
 		return nil
 	}
 
@@ -90,6 +93,18 @@ func (bp *BusPirate) Open() error {
 }
 
 func (bp *BusPirate) Close() error {
+	if bp.mode == MODE_UNKNOWN {
+		return fmt.Errorf("cannot leave unknown mode")
+	}
+
+	if bp.mode != MODE_BITBANG {
+		fmt.Printf("need to go to bitbang mode before closing\n")
+		err := bp.EnterBitbangMode()
+		if err != nil {
+			return fmt.Errorf("could not enter bitbang mode to close connection: %v", err)
+		}
+	}
+
 	r, err := bp.exchangeByte(0x0f)
 	if err != nil {
 		return err
@@ -140,3 +155,33 @@ func (bp *BusPirate) exchangeByteAndExpect(in byte, exp byte) error {
 	return nil
 }
 
+func (bp *BusPirate) EnterBitbangMode() error {
+	if bp.mode == MODE_UNKNOWN {
+		return fmt.Errorf("cannot enter bitbang mode from unknown mode")
+	}
+
+	err := bp.writeByte(0x00)
+	if err != nil {
+		bp.clearMode()
+		return err
+	}
+
+	var rb [5]byte
+	_, err = io.ReadFull(bp.c, rb[0:])
+	if err != nil {
+		bp.clearMode()
+		return fmt.Errorf("error reading response: %v", err)
+	}
+
+	if !bytes.HasPrefix(rb[0:], []byte("BBIO")) {
+		bp.clearMode()
+		return fmt.Errorf("expected version string \"BBIOx\", got %q", rb)
+	}
+
+	if rb[4] != '1' {
+		bp.clearMode()
+		return fmt.Errorf("only BBIO version 1 is supported, bus pirate uses version %q", rb[4])
+	}
+
+	return nil
+}
