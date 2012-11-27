@@ -126,3 +126,17 @@ func (bp *BusPirate) exchangeByte(in byte) (byte, error) {
 	}
 	return bp.readByte()
 }
+
+func (bp *BusPirate) exchangeByteAndExpect(in byte, exp byte) error {
+	rb, err := bp.exchangeByte(0x02)
+	if err != nil {
+		return err
+	}
+
+	if rb != exp {
+		return fmt.Errorf("illegal response, got %#02x, expected %#02x", rb, exp)
+	}
+
+	return nil
+}
+
