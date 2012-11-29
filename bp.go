@@ -143,7 +143,7 @@ func (bp *BusPirate) exchangeByte(in byte) (byte, error) {
 }
 
 func (bp *BusPirate) exchangeByteAndExpect(in byte, exp byte) error {
-	rb, err := bp.exchangeByte(0x02)
+	rb, err := bp.exchangeByte(in)
 	if err != nil {
 		return err
 	}
