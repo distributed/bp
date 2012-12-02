@@ -11,6 +11,14 @@ type BusPirateI2C struct {
 	bp *BusPirate
 }
 
+const (
+	bpcmd_ENTER_I2C_MODE = 0x02
+)
+
+const (
+	bpans_OK = 0x01
+)
+
 func (bp *BusPirate) EnterI2CMode() (BusPirateI2C, error) {
 	var bpi2c BusPirateI2C
 
@@ -18,7 +26,7 @@ func (bp *BusPirate) EnterI2CMode() (BusPirateI2C, error) {
 		return bpi2c, ModeError("I2C mode can only be entered from raw bitbang mode")
 	}
 
-	err := bp.writeByte(0x02)
+	err := bp.writeByte(bpcmd_ENTER_I2C_MODE)
 	if err != nil {
 		bp.clearMode()
 		return bpi2c, err
@@ -51,6 +59,15 @@ func (bp *BusPirate) EnterI2CMode() (BusPirateI2C, error) {
 
 var notI2CMode = ModeError("not in I2C mode")
 
+const (
+	bpcmd_I2C_START      = 0x02
+	bpcmd_I2C_STOP       = 0x03
+	bpcmd_I2C_READ       = 0x04
+	bpcmd_I2C_ACK        = 0x06
+	bpcmd_I2C_NACK       = 0x07
+	bpcmd_I2C_BULK_WRITE = 0x10
+)
+
 // Start sends a start or repeated start bit.
 func (inf BusPirateI2C) Start() error {
 	bp := inf.bp
@@ -58,16 +75,16 @@ func (inf BusPirateI2C) Start() error {
 		return notI2CMode
 	}
 
-	return bp.exchangeByteAndExpect(0x02, 0x01)
+	return bp.exchangeByteAndExpect(bpcmd_I2C_START, bpans_OK)
 }
 
-func (inf *BusPirateI2C) Stop() error {
+func (inf BusPirateI2C) Stop() error {
 	bp := inf.bp
 	if bp.mode != MODE_I2C {
 		return notI2CMode
 	}
 
-	return bp.exchangeByteAndExpect(0x03, 0x01)
+	return bp.exchangeByteAndExpect(bpcmd_I2C_STOP, 0x01)
 }
 
 func (inf BusPirateI2C) ReadByte(ack bool) (byte, error) {
@@ -76,15 +93,15 @@ func (inf BusPirateI2C) ReadByte(ack bool) (byte, error) {
 		return 0x00, notI2CMode
 	}
 
-	b, err := bp.exchangeByte(0x05)
+	b, err := bp.exchangeByte(bpcmd_I2C_READ)
 	if err != nil {
 		return 0, err
 	}
 
 	if ack {
-		err = bp.exchangeByteAndExpect(0x06, 0x01)
+		err = bp.exchangeByteAndExpect(bpcmd_I2C_ACK, bpans_OK)
 	} else {
-		err = bp.exchangeByteAndExpect(0x07, 0x01)
+		err = bp.exchangeByteAndExpect(bpcmd_I2C_NACK, bpans_OK)
 	}
 
 	return b, err
@@ -99,8 +116,8 @@ func (inf BusPirateI2C) WriteByte(b byte) error {
 	// TODO: factor into bulk write
 
 	//  bulk write cmd | count-1
-	cmd := byte(0x10 | 0x00)
-	if err := bp.exchangeByteAndExpect(cmd, 0x01); err != nil {
+	cmd := byte(bpcmd_I2C_BULK_WRITE | 0x00)
+	if err := bp.exchangeByteAndExpect(cmd, bpans_OK); err != nil {
 		return err
 	}
 
