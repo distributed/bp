@@ -19,6 +19,15 @@ const (
 	bpans_OK = 0x01
 )
 
+type i2cerror struct {
+	Op  string
+	Err error
+}
+
+func (e *i2cerror) Error() string {
+	return e.Op + ": " + e.Err.Error()
+}
+
 func (bp *BusPirate) EnterI2CMode() (BusPirateI2C, error) {
 	var bpi2c BusPirateI2C
 
@@ -75,7 +84,10 @@ func (inf BusPirateI2C) Start() error {
 		return notI2CMode
 	}
 
-	return bp.exchangeByteAndExpect(bpcmd_I2C_START, bpans_OK)
+	if err := bp.exchangeByteAndExpect(bpcmd_I2C_START, bpans_OK); err != nil {
+		return &i2cerror{"i2c.Start", err}
+	}
+	return nil
 }
 
 func (inf BusPirateI2C) Stop() error {
@@ -84,7 +96,10 @@ func (inf BusPirateI2C) Stop() error {
 		return notI2CMode
 	}
 
-	return bp.exchangeByteAndExpect(bpcmd_I2C_STOP, 0x01)
+	if err := bp.exchangeByteAndExpect(bpcmd_I2C_STOP, 0x01); err != nil {
+		return &i2cerror{"i2c.Stop", err}
+	}
+	return nil
 }
 
 func (inf BusPirateI2C) ReadByte(ack bool) (byte, error) {
@@ -95,13 +110,17 @@ func (inf BusPirateI2C) ReadByte(ack bool) (byte, error) {
 
 	b, err := bp.exchangeByte(bpcmd_I2C_READ)
 	if err != nil {
-		return 0, err
+		return 0, &i2cerror{"i2c.ReadByte", err}
 	}
 
 	if ack {
 		err = bp.exchangeByteAndExpect(bpcmd_I2C_ACK, bpans_OK)
 	} else {
 		err = bp.exchangeByteAndExpect(bpcmd_I2C_NACK, bpans_OK)
+	}
+
+	if err != nil {
+		err = &i2cerror{"i2c.ReadByte", err}
 	}
 
 	return b, err
@@ -118,12 +137,12 @@ func (inf BusPirateI2C) WriteByte(b byte) error {
 	//  bulk write cmd | count-1
 	cmd := byte(bpcmd_I2C_BULK_WRITE | 0x00)
 	if err := bp.exchangeByteAndExpect(cmd, bpans_OK); err != nil {
-		return err
+		return &i2cerror{"i2c.WriteByte", err}
 	}
 
 	ackb, err := bp.exchangeByte(b)
 	if err != nil {
-		return err
+		return &i2cerror{"i2c.WriteByte", err}
 	}
 
 	if ackb != 0 {

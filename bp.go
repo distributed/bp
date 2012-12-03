@@ -2,6 +2,7 @@ package bp
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 )
@@ -121,15 +122,17 @@ func (bp *BusPirate) Close() error {
 
 func (bp *BusPirate) writeByte(b byte) error {
 	sl := []byte{b}
-	_, err := bp.c.Write(sl)
-	return err
+	if _, err := bp.c.Write(sl); err != nil {
+		errors.New("write byte to bus pirate: " + err.Error())
+	}
+	return nil
 }
 
 func (bp *BusPirate) readByte() (byte, error) {
 	sl := make([]byte, 1)
 	n, err := bp.c.Read(sl)
 	if n != 1 || err != nil {
-		return 0, err
+		return 0, errors.New("read from bus pirate: " + err.Error())
 	}
 	return sl[0], nil
 }
@@ -149,7 +152,7 @@ func (bp *BusPirate) exchangeByteAndExpect(in byte, exp byte) error {
 	}
 
 	if rb != exp {
-		return fmt.Errorf("illegal response, got %#02x, expected %#02x", rb, exp)
+		return fmt.Errorf("unexpected response from bus pirate, got %#02x, want %#02x", rb, exp)
 	}
 
 	return nil
