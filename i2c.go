@@ -11,6 +11,10 @@ import (
 	"io"
 )
 
+// BusPirateI2C represents a bus pirate in I2C mode. It offers an
+// interface consistens with i2cm.I2CMaster. When the user makes
+// the bus pirate switch into a different mode, the BusPirateI2C
+// object becomes invalid and must no be used any longer.
 type BusPirateI2C struct {
 	bp *BusPirate
 }
@@ -32,6 +36,10 @@ func (e *i2cerror) Error() string {
 	return e.Op + ": " + e.Err.Error()
 }
 
+// EnterI2CMode makes the bus pirate enter I2C mode and returns a
+// BusPirateI2C object offering the I2C functionality of the device. 
+// The I2CMode can only be entered from bitbang mode.
+// This might change.
 func (bp *BusPirate) EnterI2CMode() (BusPirateI2C, error) {
 	var bpi2c BusPirateI2C
 
@@ -81,7 +89,6 @@ const (
 	bpcmd_I2C_BULK_WRITE = 0x10
 )
 
-// Start sends a start or repeated start bit.
 func (inf BusPirateI2C) Start() error {
 	bp := inf.bp
 	if bp.mode != MODE_I2C {

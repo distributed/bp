@@ -30,6 +30,8 @@ var modestrings = map[int]string{MODE_CLOSED: "closed",
 	MODE_RAW:     "raw",
 }
 
+// ModeError is returned when the device is not in a suitable mode for
+// the desired operation.
 type ModeError string
 
 func (me ModeError) Error() string {
@@ -41,7 +43,7 @@ func (bp *BusPirate) clearMode() {
 	bp.modeversion = 0
 }
 
-// returns the active mode and the mode's version
+// GetMode returns the active mode and the mode's version.
 func (bp *BusPirate) GetMode() (int, int) {
 	return bp.mode, bp.modeversion
 }

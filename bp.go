@@ -2,6 +2,8 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
+// Package bp enables access to a bus pirate. Currently only I2C mode
+// is implemented.
 package bp
 
 import (
@@ -23,12 +25,21 @@ func isTimeout(err error) bool {
 	return false
 }
 
+// Conn represents a serial connection to a bus pirate. The connection
+// needs to be open and configured with the correct baud rate prior
+// to use.
+//
+// The signature
+// is satisfied by sers.SerialPort. Find it at github.com/distributed/sers.
 type Conn interface {
 	io.ReadWriteCloser
 	SetReadParams(int, float64) error
 }
 
-// io.ReadWriteCloser
+// BusPirate offers the functionality of a bus pirate. It works with
+// the device in binary mode. Before using a BusPirate object, the user
+// has to put the bus pirate into a known state via a call to
+// BusPirate.Open().
 type BusPirate struct {
 	c           Conn
 	mode        int
@@ -39,6 +50,9 @@ func NewBusPirate(c Conn) *BusPirate {
 	return &BusPirate{c: c}
 }
 
+// Open puts the bus pirate into binary bit bang mode. The user needs
+// to call this method as the bus pirate cannot be assumed to be in
+// any specific mode when the connection to it is opened.
 func (bp *BusPirate) Open() error {
 	err := bp.c.SetReadParams(0, 100e-3)
 	if err != nil {
@@ -97,6 +111,10 @@ func (bp *BusPirate) Open() error {
 	return fmt.Errorf("bp: no suitable response after maximum number of trials\n")
 }
 
+// Close leaves binary mode. If the bus pirate is currently not in
+// binary bit bang mode, it first enters binary bit bang mode. If the
+// user does not call Close, the device might be unresponsive in text
+// mode.
 func (bp *BusPirate) Close() error {
 	if bp.mode == MODE_UNKNOWN {
 		return fmt.Errorf("cannot leave unknown mode")
