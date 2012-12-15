@@ -7,7 +7,7 @@ package bp
 import (
 	"bytes"
 	"fmt"
-	"i2cm"
+	"github.com/distributed/i2cm"
 	"io"
 )
 
