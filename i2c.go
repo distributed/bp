@@ -6,17 +6,35 @@ package bp
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"github.com/distributed/i2cm"
 	"io"
 )
 
 // BusPirateI2C represents a bus pirate in I2C mode. It offers an
-// interface consistens with i2cm.I2CMaster. When the user makes
+// interface consistent with i2cm.I2CMaster. Obtain a BusPirateI2C by switching
+// the bus pirate into I2C mode with *BusPirate.EnterI2CMode().
+// When the user makes
 // the bus pirate switch into a different mode, the BusPirateI2C
 // object becomes invalid and must no be used any longer.
 type BusPirateI2C struct {
 	bp *BusPirate
+}
+
+// NonStrictI2C offers the same functionality as BusPirateI2C, but also
+// adds a fast if not completely faithful Transact8x8 implementation.
+// The Transact8x8 implementation is not faithful in that one transaction
+// results in *two* transactions on the bus. Before using NonStrictI2C make
+// sure that no other master is interfering with you and that your device's
+// behavior doesn't change when a write-then-read transaction is split into
+// a write and a read. Expect substantial speed gains from using this
+// implementation.
+//
+// Obtain a NonStrictI2C by switching the bus pirate into non-strict I2C mode
+// with *BusPirate.EnterNonStrictI2CMode().
+type NonStrictI2C struct {
+	BusPirateI2C
 }
 
 const (
@@ -86,7 +104,13 @@ const (
 	bpcmd_I2C_READ       = 0x04
 	bpcmd_I2C_ACK        = 0x06
 	bpcmd_I2C_NACK       = 0x07
+	bpcmd_I2C_WnR        = 0x08 // write then read
 	bpcmd_I2C_BULK_WRITE = 0x10
+)
+
+const (
+	i2c_RnW_MAXREAD  = 4096
+	i2c_RnW_MAXWRITE = 4096
 )
 
 func (inf BusPirateI2C) Start() error {
@@ -161,4 +185,138 @@ func (inf BusPirateI2C) WriteByte(b byte) error {
 	}
 
 	return nil
+}
+
+func (bp *BusPirate) EnterNonStrictI2CMode() (NonStrictI2C, error) {
+	// TODO: increase bp timeout? times out on ~4k transaction
+	m, err := bp.EnterI2CMode()
+	if err != nil {
+		return NonStrictI2C{}, err
+	}
+
+	return NonStrictI2C{m}, nil
+}
+
+func (nsi NonStrictI2C) writeThenRead(w, r []byte) error {
+	bp := nsi.bp
+
+	// we have to write:
+	// command: 1 byte
+	// write count: 2 bytes, big endian
+	// read count: 2 bytes, big endian
+	// slice w: len(w) bytes
+	if len(w) > i2c_RnW_MAXWRITE {
+		return fmt.Errorf("bp.writeThenRead: cannot write more than %d bytes", i2c_RnW_MAXWRITE)
+	}
+
+	if len(r) > i2c_RnW_MAXREAD {
+		return fmt.Errorf("bp.writeThenRead: cannot write more than %d bytes", i2c_RnW_MAXREAD)
+	}
+
+	header := make([]byte, 5)
+	header[0] = bpcmd_I2C_WnR
+	header[1] = uint8(len(w) >> 8)
+	header[2] = uint8(len(w))
+	header[3] = uint8(len(r) >> 8)
+	header[4] = uint8(len(r))
+
+	fmt.Printf("header % x  ", header)
+
+	_, err := bp.c.Write(header)
+	if err != nil {
+		return nil
+	}
+
+	// the slave _would_, according to dangerous prototypes, answer with 0x00
+	// now, if either the write or the read count are out of bounds. The bounds
+	// are 0-4096 for all BPs known to me.
+	// this is seriously bad protocol design. if i would want to deal with
+	// different bus pirate versions which support different maximum read/write
+	// sizes, I'd either have to settle for the lowest common denominator or
+	// wait for the 0x00 to arrive. in fair weather this means that we
+	// would have to time out on a non-arriving 0x00 here - on every write then
+	// read operation. this bis bonkers and I'm not doing it.
+
+	fmt.Printf("write b % x    ", w)
+
+	_, err = bp.c.Write(w)
+	if err != nil {
+		return err
+	}
+
+	// the ack after the write bytes operation is poorly documented. i believe
+	// that the bp will answer bpans_OK if all bytes written have been acked
+	// and 0x00 if there was a NACK at some point
+	b, err := bp.readByte()
+	if err != nil {
+		return err
+	}
+
+	// we're aliasing all kinds of NACKs into NoSuchDevice - I'm not sure this
+	// is a good idea, but at this point I don't care any more.
+	if b != bpans_OK {
+		return i2cm.NoSuchDevice
+	}
+
+	fmt.Printf("  ACK!   ")
+
+	if len(r) > 0 {
+		_, err = io.ReadFull(bp.c, r)
+		if err != nil {
+			return err
+		}
+	}
+
+	fmt.Printf("read b % x\n", r)
+
+	return nil
+}
+
+// only supports 7 bit addressing
+func (nsi NonStrictI2C) Transact8x8(addr i2cm.Addr, regaddr uint8, w []byte, r []byte) (nw, nr int, err error) {
+	bp := nsi.bp
+	if bp.mode != MODE_I2C {
+		return 0, 0, notI2CMode
+	}
+
+	if addr.GetAddrLen() != 7 {
+		return 0, 0, errors.New("bp nonstrict I2C only supports 7 bit addressing")
+	}
+
+	fmt.Printf("nonstrict Transact8x8 addr %v regaddr %#02x len(w) %d len(r) %d\n", addr, regaddr, len(w), len(r))
+
+	// we need one byte for the device address
+	maxwsize := i2c_RnW_MAXWRITE - 1
+	if len(w) > maxwsize {
+		return 0, 0, fmt.Errorf("Transact8x8: write of %d bytes requested, maximum of %d supported", len(w), maxwsize)
+	}
+
+	maxrsize := i2c_RnW_MAXREAD
+	if len(r) > maxrsize {
+		return 0, 0, fmt.Errorf("Transact8x8: read of %d bytes requested, maximum of %d supported", len(r), maxrsize)
+	}
+
+	// prepend device and register address
+	wbuf := make([]byte, 0, len(w)+2)
+	wbuf = append(wbuf, uint8(addr.GetBaseAddr())<<1) // write addr
+	wbuf = append(wbuf, regaddr)
+	wbuf = append(wbuf, w...)
+
+	// the write part of the transaction
+	err = nsi.writeThenRead(wbuf, nil)
+	if err != nil {
+		// actually, we don't know anything about the number of bytes written
+		return 0, 0, err
+	}
+
+	wbuf = wbuf[0:1]
+	wbuf[0] = uint8(addr.GetBaseAddr()<<1) | 1 // read addr
+
+	// the read part of the transaction
+	err = nsi.writeThenRead(wbuf, r)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return len(w), len(r), nil
 }
