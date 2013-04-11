@@ -309,13 +309,15 @@ func (nsi NonStrictI2C) Transact8x8(addr i2cm.Addr, regaddr uint8, w []byte, r [
 		return 0, 0, err
 	}
 
-	wbuf = wbuf[0:1]
-	wbuf[0] = uint8(addr.GetBaseAddr()<<1) | 1 // read addr
+	if len(r) > 0 {
+		wbuf = wbuf[0:1]
+		wbuf[0] = uint8(addr.GetBaseAddr()<<1) | 1 // read addr
 
-	// the read part of the transaction
-	err = nsi.writeThenRead(wbuf, r)
-	if err != nil {
-		return 0, 0, err
+		// the read part of the transaction
+		err = nsi.writeThenRead(wbuf, r)
+		if err != nil {
+			return 0, 0, err
+		}
 	}
 
 	return len(w), len(r), nil
