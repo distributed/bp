@@ -46,6 +46,12 @@ type BusPirate struct {
 	modeversion int
 }
 
+// NewBusPirate generates a new BusPirate objected that uses c as its
+// communication channel. Note that you need to correctly configure the
+// connection with respect to baud rate, parity and flow control. An 8 bit
+// connection is assumed. The BusPirate object pointed to by the return value
+// is not ready to use, you need to call the Open() method to put the device
+// into a known state.
 func NewBusPirate(c Conn) *BusPirate {
 	return &BusPirate{c: c}
 }
